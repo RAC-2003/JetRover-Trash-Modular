@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+build/
+install/
+log/
+
+# Local calibration artifacts, not source
+bin_position_calibration.json
+gripper_calibration_log.csv

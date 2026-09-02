@@ -1,0 +1,152 @@
+# trash_modular configuration
+# All tunables live here. Nothing in this file requires a rebuild to change,
+# only a node restart.
+
+robot:
+  cmd_vel_topic: /controller/cmd_vel
+  odom_topic: /odom
+  max_linear_speed: 0.15
+  max_angular_speed: 0.6
+  watchdog_timeout_s: 0.5      # cmd_vel is zeroed if not refreshed within this window
+
+camera:
+  rgb_topic: /depth_cam/rgb/image_raw
+  depth_topic: /depth_cam/depth/image_raw
+  depth_info_topic: /depth_cam/depth/camera_info
+  ready_timeout_s: 3.0
+  # RGB intrinsics for pixel->angle alignment math. There is no RGB CameraInfo
+  # topic published on this robot (only depth/), so these stay as calibrated
+  # constants rather than being read live - recalibrate here if the camera changes.
+  rgb_focal_x: 357.69
+  rgb_center_x: 324.88
+  rgb_width: 640
+  rgb_height: 360
+  object_size_focal_px: 554.0
+
+imu:
+  raw_topic: /ros_robot_controller/imu_raw
+  gyro_sign: -1.0               # this robot's gyro reports z opposite the ROS convention
+  ready_timeout_s: 2.0
+
+lidar:
+  scan_topic: /scan
+  front_cone_deg: 30.0
+  min_valid_range_m: 0.12
+  max_valid_range_m: 16.0
+  ready_timeout_s: 2.0
+
+detection:
+  strategy: yolo_hybrid               # claude | chatgpt | yolo_hybrid
+  confidence_threshold: 0.60
+  classes:                       # yolo_class -> material, used by yolo_hybrid
+    apple: non-recyclable
+    styrofoam: non-recyclable
+    scrap_paper: non-recyclable
+    plastic_bottle: recyclable
+  yolo:
+    # model_path: models/best.pt   # relative to package share dir, or absolute
+    model_path: /home/ubuntu/ros2_ws/models/best.pt
+    conf_threshold: 0.60
+
+vlm:
+  claude_model: claude-opus-4-5
+  chatgpt_model: gpt-4o
+  max_tokens_detect: 80
+  max_tokens_classify: 40
+
+alignment:
+  coarse_pixel_tolerance: 30
+  fine_pixel_tolerance: 15
+  fine_pixel_tolerance_y: 20
+  fine_outlier_px: 110
+  fine_max_misses: 4
+  fine_max_iterations: 10
+  fine_reseed_max: 1
+  target_pixel_x: 329
+  target_pixel_y: 180
+  pixels_per_pulse: 2.2
+  pixels_per_pulse_lift: 3.0
+  lift_correction_max_pulse: 120
+
+navigation:
+  approach_lidar_distance_m: 0.130
+  drop_lidar_distance_m: 0.130
+  # Post-odom guarded LiDAR nudge: if the robot falls back to a LiDAR approach
+  # after odometry did not converge, it stops once it is within this distance of
+  # the configured bin coordinate (or once odometry shows it has passed it), so
+  # it can never drive past the manually-set bin position.
+  drop_overrun_margin_m: 0.10
+  # If the LiDAR's closest reading jumps back up by more than this (metres)
+  # after having gotten closer, drive_until_lidar treats the target as lost
+  # at close range (small objects can drop out of a 2D LiDAR's scan plane)
+  # and stops there rather than trusting the larger reading and driving on.
+  lost_target_margin_m: 0.04
+  position_tolerance_m: 0.05
+  yaw_tolerance_deg: 3.0
+  linear_speed: 0.1
+  angular_speed: 0.3
+  rotate_in_place_threshold_deg: 45.0
+  timeout_s: 60.0
+
+arm:
+  servo_pub_topic: servo_controller
+  action_duration_s: 1.5
+  poses:
+    home: {"1": 500, "2": 600, "3": 150, "4": 200, "5": 500}
+    carry: {"1": 500, "2": 600, "3": 100, "4": 300, "5": 500}
+    drop: {"1": 500, "2": 500, "3": 350, "4": 250, "5": 500}
+  grasp:
+    baseline_lift: 350
+    baseline_reach: 215
+    calibration_csv: config/grasp_calibration.csv
+    max_trusted_distance_px: 220.0
+    max_neighbours: 4
+
+gripper:
+  servo_id: 10
+  open_position: 100
+  close_position: 700
+  resist_threshold: 60
+  servo_states_topic: /controller_manager/servo_states
+  settle_time_s: 1.0
+
+pipeline:
+  grasp_max_attempts: 1
+  search_step_deg: 30
+  search_pause_s: 2.0
+  allow_depth_fallback: false
+  depth_retry_delay_s: 0.5   # wait this long before re-sampling depth once, if the first read has no valid pixels
+
+bins:
+  # static: drive to the calibrated home+offset odom coordinate (targets
+  #         below), exactly what's been used and tuned so far.
+  # detect: instead of a fixed coordinate, rotate in place searching for the
+  #         bin visually (same VLM client as trash detection, see
+  #         perception/bin_detector.py) then approach it with the LiDAR -
+  #         mirrors how the trash object itself is found in SCAN/APPROACH.
+  location_mode: detect
+  home: {x: 0.0, y: 0.0, yaw_deg: 0.0}
+  targets:
+    - material: recyclable
+      # offset: {dx: 0.5698, dy: 0.403, dyaw_deg: 13.1}
+      offset: {dx: 0.7426, dy:  0.1713, dyaw_deg: 2.47}
+    - material: non-recyclable
+      offset: {dx: 0.4961, dy:  0.2335, dyaw_deg: 12.09}
+  calibration_file: config/bin_position_calibration.json
+  # Only used when location_mode is 'detect'.
+  search:
+    step_deg: 30
+    pause_s: 1.5
+    max_steps: 12
+    pixel_tolerance: 40   # coarse body-align tolerance, matches alignment.coarse_pixel_tolerance in spirit
+    align_max_steps: 6    # max rotate+re-detect iterations to centre on the bin before approaching
+    outlier_px: 150        # reject a bin detection that jumps more than this many px from the last accepted one
+    recenter_max_iterations: 3   # fine arm-turret recentre iterations once stopped at the bin, before dropping
+
+reporting:
+  enabled: false                 # optional trial-log email report, off by default
+  smtp_host: smtp.gmail.com
+  smtp_port: 587
+  from_address_env: TRASH_SORTER_EMAIL_FROM
+  password_env: TRASH_SORTER_EMAIL_PASSWORD
+  to_address_env: TRASH_SORTER_EMAIL_TO
