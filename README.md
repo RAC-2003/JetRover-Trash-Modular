@@ -241,3 +241,21 @@ This project was built module-by-module, each tested standalone before the next 
 - `gripper.resist_threshold` and the fine-alignment vertical (lift) correction are uncalibrated by default, same as in the old project - use `calibrate_gripper` to pick a real threshold before trusting grasp verification.
 - `arm.grasp.calibration_csv` ships empty (header only) - every grasp uses the fixed baseline pose regardless of depth until you run `calibrate_grasp` and collect real samples.
 - Optional email trial reporting was intentionally **not** ported - the old project had a Gmail app password committed in source, which is a real credential leak. If you want reporting back, wire it up behind `reporting.enabled` in config, sourcing credentials from the environment variables already named in `config.yaml` (`reporting.*_env`) - never commit credentials.
+
+## Technical Notes
+
+- The ROS2 package's actual installed name is `trash_modular` (see `package.xml`, `setup.py`, and every `ros2 run` command). This README uses the working name `trash_sorter` in prose, while command examples retain the real package identifier.
+
+- `bins.location_mode` is currently set to `detect` in `config.yaml`. The robot's primary bin-finding behaviour is the VLM visual-search-and-approach path. The odometry-offset path is available as a configured alternative and its offsets are populated — switch `bins.location_mode` to `static` to use it.
+
+- `grasp_calibration.csv` contains only its header row. The grasp-pose correction feature is fully implemented and unit-tested but has no data to act on. Every grasp currently uses one fixed baseline pose regardless of the object's position or depth. Run `scripts/calibrate_grasp.py` to populate it.
+
+- `gripper.resist_threshold` is still the code default (`60`). There is no evidence that `calibrate_gripper`'s output has been applied. Run `scripts/calibrate_gripper.py` and update this value in `config.yaml` before trusting grasp verification.
+
+- A hardware-independent `pytest` suite exists covering 16 tests across the state machine, coordinate transforms, and grasp calibrator logic. Run it without a robot: `pytest test/`.
+
+- Trial results are logged to the console and held in memory only. Nothing is written to disk, so there is no way to answer "how well has this performed over N runs" from the project alone. See Section 13 (Future Work) for the planned fix.
+
+- Every major sensor-loss path (camera, IMU, depth, LiDAR, gripper feedback) has an explicit logged fallback rather than a silent assumption of success. This is a consistent design pattern across the codebase.
+
+- The most important behavioural fixes (LiDAR scan-plane dropout guard, bin-approach overrun guard, watchdog re-send pattern, outlier rejection in object and bin alignment) are documented in code comments as responses to specific previously observed failures. Preserve these comments in any future refactor.
